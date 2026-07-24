@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nokia Snake</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 14px;
+    background: #11181c;
+    font-family: 'Courier New', Courier, monospace;
+  }
+  .phone {
+    background: linear-gradient(160deg, #2a3c48, #1b2730);
+    padding: 18px 18px 22px;
+    border-radius: 18px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .screen {
+    background: #9bbc0f;
+    padding: 12px 12px 8px;
+    border-radius: 6px;
+    border: 3px solid #0a141a;
+    box-shadow: inset 0 0 0 3px #8bac0f, inset 0 0 18px rgba(15,56,15,.25);
+  }
+  .hud {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-weight: bold; letter-spacing: 2px; font-size: 12px;
+    color: #0f380f;
+    text-shadow: 0 1px 0 rgba(159,191,15,.4);
+    margin-bottom: 6px;
+  }
+  canvas {
+    display: block; image-rendering: pixelated;
+    background: #9bbc0f;
+    border: 2px solid #0f380f;
+  }
+  .brand {
+    text-align: center; margin-top: 6px;
+    color: #0f380f; opacity: .45;
+    font-size: 10px; letter-spacing: 4px; font-weight: bold;
+  }
+  .hint { color: #6b7d88; font-size: 12px; letter-spacing: 1px; text-align:center; }
+  .hint kbd {
+    background: #2a3c48; color: #b8c7d0; border: 1px solid #3a4e5a;
+    border-radius: 3px; padding: 1px 6px; font-family: inherit; font-size: 11px;
+  }
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="screen">
+      <div class="hud"><span id="score">SCORE 0</span><span id="hi">HI 0</span></div>
+      <canvas id="c" width="360" height="360"></canvas>
+      <div class="brand">NOKIA &middot; SNAKE II</div>
+    </div>
+  </div>
+  <div class="hint">
+    <kbd>&larr;</kbd> <kbd>&uarr;</kbd> <kbd>&darr;</kbd> <kbd>&rarr;</kbd> / WASD to move &middot; any key to start<br>
+    eat fruits & the gold star for points
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const hiEl = document.getElementById('hi');
+
+  const COLS = 20, ROWS = 20, CELL = 18;
+  const BASE_TICK = 140, MIN_TICK = 70;
+  const BONUS_EVERY = 9000, BONUS_TTL = 6000;     // ponytail: fixed timers, fine for casual play
+  const HS_KEY = 'nokia_snake_hi';
+
+  let snake, prevSnake, dir, nextDir, food, bonus, bonusDue, bonusLeft;
+  let score, hi, state, acc, last, tickMs, now;
+
+  // high score via localStorage, degrades gracefully if unavailable
+  function loadHi(){ try { hi = parseInt(localStorage.getItem(HS_KEY)||'0',10)||0; } catch(e){ hi = 0; } }
+  function saveHi(){ if(score>hi){ hi = score; try { localStorage.setItem(HS_KEY,String(hi)); } catch(e){} } }
+
+  const FRUITS = [                                  // "other eating things": different fruits, different points
+    { pts:1, color:'#e53935', stem:'#5d4037' },   // apple
+    { pts:2, color:'#c62828', stem:'#6d4c41' },   // cherry
+    { pts:3, color:'#ec407a', stem:'#4caf50' },   // strawberry
+    { pts:4, color:'#fdd835', stem:'#8d6e63' },   // banana
+  ];
+
+  function reset() {
+    snake = [{x:9,y:10},{x:8,y:10},{x:7,y:10}];
+    prevSnake = snake.map(s => ({...s}));
+    dir = {x:1,y:0}; nextDir = dir;
+    score = 0; bonus = null; bonusDue = BONUS_EVERY; bonusLeft = 0;
+    placeFood();
+    state = 'idle'; acc = 0; last = 0; tickMs = BASE_TICK;
+    scoreEl.textContent = 'SCORE 0'; hiEl.textContent = 'HI ' + hi;
+  }
+
+  const same = (a,b) => a.x===b.x && a.y===b.y;
+  const onSnake = p => snake.some(s => same(s,p));
+  function rndFreeCell(){
+    let p;
+    do { p = {x:(Math.random()*COLS)|0, y:(Math.random()*ROWS)|0}; }
+    while (onSnake(p) || (bonus && same(bonus,p)) || (food && same(food,p)));
+    return p;
+  }
+  function placeFood(){ const p = rndFreeCell(); food = {x:p.x, y:p.y, fruit: FRUITS[(Math.random()*FRUITS.length)|0]}; }
+  function spawnBonus(){ const p = rndFreeCell(); bonus = {x:p.x, y:p.y}; bonusLeft = BONUS_TTL; }
+
+  function step() {
+    prevSnake = snake.map(s => ({...s}));          // snapshot for smooth interpolation
+    dir = nextDir;
+    const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+    if (head.x<0||head.x>=COLS||head.y<0||head.y>=ROWS || snake.some(s => same(s,head))) {
+      state = 'over'; saveHi(); hiEl.textContent = 'HI ' + hi;
+      return;
+    }
+    snake.unshift(head);
+    if (same(head, food)) {                          // eat fruit
+      score += food.fruit.pts;
+      scoreEl.textContent = 'SCORE ' + score;
+      tickMs = Math.max(MIN_TICK, BASE_TICK - score*4);
+      placeFood();
+    } else if (bonus && same(head, bonus)) {         // eat gold star bonus
+      score += 10; bonus = null; bonusDue = BONUS_EVERY;
+      scoreEl.textContent = 'SCORE ' + score;
+      snake.pop();
+    } else {
+      snake.pop();
+    }
+  }
+
+  // ---- rendering helpers ----
+  const cellCenter = p => ({x: p.x*CELL + CELL/2, y: p.y*CELL + CELL/2});
+  const lerp = (a,b,t) => a + (b-a)*t;
+  function disc(x,y,r,color){ ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); }
+
+  function renderPts(alpha){                          // smooth snake positions between ticks
+    const n = snake.length, out = [];
+    const a = state==='playing' ? alpha : 0;
+    for (let i=0;i<n;i++){
+      const cur = snake[i];
+      const prev = (prevSnake && prevSnake[i]) || (prevSnake && prevSnake[prevSnake.length-1]) || cur;
+      out.push({ x: lerp(prev.x, cur.x, a)*CELL + CELL/2, y: lerp(prev.y, cur.y, a)*CELL + CELL/2 });
+    }
+    return out;
+  }
+  function segRadius(i,n){
+    if (i===0) return CELL*0.56;
+    const base = CELL*0.53, tailStart = n-5;
+    if (i < tailStart) return base;
+    const t = (i - tailStart) / 5;
+    return base * (1 - t*0.66);                      // taper toward tail tip
+  }
+  const bodyColor = i => i%2===0 ? '#2e7d32' : '#246c29';  // subtle banding = scales
+
+  function drawSnake(alpha){
+    const pts = renderPts(alpha), n = pts.length;
+    for (let i=n-1;i>=0;i--){                        // tail first, head last (on top)
+      const r = segRadius(i,n);
+      disc(pts[i].x, pts[i].y, r, bodyColor(i));
+      disc(pts[i].x, pts[i].y - r*0.35, r*0.5, 'rgba(255,255,255,.08)'); // dorsal highlight
+    }
+    drawHead(pts[0]);
+  }
+
+  function drawHead(h){
+    const d = dir, p = {x:-d.y, y:d.x};              // perpendicular
+    const fwd = CELL*0.07, side = CELL*0.16;
+    const ex = h.x + d.x*fwd, ey = h.y + d.y*fwd;
+    // eyes
+    [[1],[-1]].forEach(sg => {
+      const ax = ex + p.x*side*sg, ay = ey + p.y*side*sg;
+      disc(ax, ay, CELL*0.11, '#ffffff');
+      disc(ax + d.x*CELL*0.03, ay + d.y*CELL*0.03, CELL*0.057, '#000000');
+    });
+    // forked tongue, flicking
+    const cyc = now % 1400;
+    if (cyc < 360){
+      const len = CELL*0.5 * (cyc/360) * (cyc < 180 ? 1 : 2 - cyc/180);
+      const tx = h.x + d.x*(CELL*0.5 + len), ty = h.y + d.y*(CELL*0.5 + len);
+      ctx.strokeStyle = '#e53935'; ctx.lineWidth = 2; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(h.x + d.x*CELL*0.5, h.y + d.y*CELL*0.5); ctx.lineTo(tx, ty); ctx.stroke();
+      const fork = side*0.6;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty); ctx.lineTo(tx + p.x*fork, ty + p.y*fork);
+      ctx.moveTo(tx, ty); ctx.lineTo(tx - p.x*fork, ty - p.y*fork);
+      ctx.stroke();
+    }
+  }
+
+  function star(cx,cy,outer,inner,pts){
+    ctx.beginPath();
+    for (let i=0;i<pts*2;i++){
+      const r = i%2===0 ? outer : inner;
+      const a = (Math.PI/pts)*i - Math.PI/2;
+      const x = cx + Math.cos(a)*r, y = cy + Math.sin(a)*r;
+      i ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+    }
+    ctx.closePath();
+  }
+
+  function drawFruit(f){
+    const c = cellCenter(f);
+    ctx.strokeStyle = f.fruit.stem; ctx.lineWidth = 2; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(c.x, c.y - CELL*0.26); ctx.lineTo(c.x+2, c.y - CELL*0.4); ctx.stroke();
+    ctx.fillStyle = '#4caf50';
+    ctx.beginPath(); ctx.ellipse(c.x+4, c.y-CELL*0.38, CELL*0.12, CELL*0.06, -0.6, 0, Math.PI*2); ctx.fill();
+    disc(c.x, c.y, CELL*0.33, f.fruit.color);
+    disc(c.x - CELL*0.1, c.y - CELL*0.1, CELL*0.08, 'rgba(255,255,255,.55)'); // shine
+  }
+
+  function drawBonus(b){
+    if (bonusLeft < 1500 && (Math.floor(now/150) % 2 === 0)) return;  // blink before vanishing
+    const c = cellCenter(b), pulse = 1 + 0.12*Math.sin(now/110);
+    ctx.save();
+    ctx.shadowColor = '#ffca28'; ctx.shadowBlur = 8 + 4*Math.sin(now/110);
+    star(c.x, c.y, CELL*0.34*pulse, CELL*0.14*pulse, 5);
+    ctx.fillStyle = '#ffd54f'; ctx.fill();
+    ctx.restore();
+    star(c.x, c.y, CELL*0.34*pulse, CELL*0.14*pulse, 5);
+    ctx.strokeStyle = '#ff8f00'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+
+  function drawGrid(){
+    ctx.strokeStyle = 'rgba(48,98,48,.18)'; ctx.lineWidth = 1;
+    for (let i=1;i<COLS;i++){ ctx.beginPath(); ctx.moveTo(i*CELL+.5,0); ctx.lineTo(i*CELL+.5,ROWS*CELL); ctx.stroke(); }
+    for (let i=1;i<ROWS;i++){ ctx.beginPath(); ctx.moveTo(0,i*CELL+.5); ctx.lineTo(COLS*CELL,i*CELL+.5); ctx.stroke(); }
+  }
+
+  function overlay(...lines){
+    ctx.fillStyle = 'rgba(15,56,15,.82)'; ctx.fillRect(0,0,COLS*CELL,ROWS*CELL);
+    ctx.fillStyle = '#9bbc0f'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font = 'bold 20px "Courier New", monospace';
+    lines.forEach((ln,i)=> ctx.fillText(ln, COLS*CELL/2, ROWS*CELL/2 + (i-(lines.length-1)/2)*26));
+  }
+
+  function draw(){
+    ctx.fillStyle = '#9bbc0f'; ctx.fillRect(0,0,COLS*CELL,ROWS*CELL);
+    drawGrid();
+    drawFruit(food);
+    if (bonus) drawBonus(bonus);
+    drawSnake(acc / tickMs);
+    if (state==='idle')     overlay('PRESS ARROW KEY');
+    else if (state==='over') overlay('GAME OVER', 'SCORE ' + score, 'BEST ' + hi, 'PRESS KEY');
+  }
+
+  function frame(t){
+    requestAnimationFrame(frame);
+    if (!last) last = t;
+    const dt = Math.min(t - last, 250); now = t; last = t;
+    if (state==='playing'){
+      acc += dt;
+      while (acc >= tickMs){ step(); acc -= tickMs; if (state!=='playing') break; }
+      bonusDue -= dt;
+      if (!bonus && bonusDue<=0) spawnBonus();
+      if (bonus){ bonusLeft -= dt; if (bonusLeft<=0){ bonus=null; bonusDue=BONUS_EVERY; } }
+    }
+    draw();
+  }
+
+  function setDir(d){
+    if (d.x === -dir.x && d.y === -dir.y) return;     // no reversing into yourself
+    nextDir = d;
+  }
+
+  const KEYS = {
+    ArrowUp:{x:0,y:-1}, ArrowDown:{x:0,y:1}, ArrowLeft:{x:-1,y:0}, ArrowRight:{x:1,y:0},
+    w:{x:0,y:-1}, s:{x:0,y:1}, a:{x:-1,y:0}, d:{x:1,y:0}
+  };
+
+  window.addEventListener('keydown', e => {
+    const key = e.key.length===1 ? e.key.toLowerCase() : e.key;
+    const d = KEYS[key];
+    if (d) e.preventDefault(); else return;
+    if (state==='idle')         { state='playing'; setDir(d); }
+    else if (state==='playing')  setDir(d);
+    else if (state==='over')     { reset(); state='playing'; setDir(d); }
+  });
+
+  loadHi(); reset(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
