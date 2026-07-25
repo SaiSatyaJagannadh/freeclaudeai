@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vice City - Basic Version</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #0f0f0f;
+            color: #00ff00;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="%230f0f0f"/><text x="50%" y="50%" fill="%23003300" font-size="40" text-anchor="middle" dy="0.3em">VICE CITY</text></svg>');
+        }
+
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background-color: rgba(0, 0, 0, 0.8);
+            border: 2px solid #00ff00;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+        }
+
+        #game-map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="%231a1a1a"/><rect x="50" y="50" width="700" height="500" fill="%230d0d0d" stroke="%23003300" stroke-width="2"/><rect x="100" y="100" width="200" height="100" fill="%23222222"/><rect x="350" y="100" width="150" height="100" fill="%23222222"/><rect x="100" y="250" width="150" height="100" fill="%23222222"/><rect x="350" y="250" width="200" height="100" fill="%23222222"/><rect x="100" y="400" width="100" height="100" fill="%23222222"/><rect x="250" y="400" width="100" height="100" fill="%23222222"/><rect x="400" y="400" width="100" height="100" fill="%23222222"/><rect x="550" y="400" width="100" height="100" fill="%23222222"/><text x="400" y="300" fill="%23006600" font-size="20" text-anchor="middle">DOWNTOWN VICE CITY</text></svg>');
+            background-size: cover;
+        }
+
+        .player {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background-color: #00ff00;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+            z-index: 10;
+        }
+
+        .enemy {
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background-color: #ff0000;
+            border-radius: 50%;
+            box-shadow: 0 0 5px rgba(255, 0, 0, 0.5);
+            z-index: 5;
+        }
+
+        .enemy.cop {
+            background-color: #0000ff;
+            box-shadow: 0 0 5px rgba(0, 0, 255, 0.5);
+        }
+
+        .enemy.gangster {
+            background-color: #8b0000;
+            box-shadow: 0 0 5px rgba(139, 0, 0, 0.5);
+        }
+
+        .collectible {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background-color: #ffff00;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+            z-index: 5;
+        }
+
+        .collectible.cash {
+            background-color: #00ff00;
+            box-shadow: 0 0 5px rgba(0, 255, 0, 0.5);
+        }
+
+        .collectible.weapon {
+            background-color: #ff00ff;
+            box-shadow: 0 0 5px rgba(255, 0, 255, 0.5);
+        }
+
+        .collectible.health {
+            background-color: #ff4500;
+            box-shadow: 0 0 5px rgba(255, 69, 0, 0.5);
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border: 1px solid #00ff00;
+            font-size: 14px;
+            color: #00ff00;
+            border-radius: 5px;
+        }
+
+        .ui div {
+            margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .ui label {
+            font-weight: bold;
+            color: #00ff00;
+        }
+
+        .ui span {
+            font-family: 'Courier New', monospace;
+            color: #ffff00;
+        }
+
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.9);
+            color: #ff0000;
+            padding: 30px;
+            border: 3px solid #ff0000;
+            border-radius: 10px;
+            text-align: center;
+            width: 80%;
+            max-width: 400px;
+            box-shadow: 0 0 30px rgba(255, 0, 0, 0.5);
+            display: none;
+            z-index: 20;
+        }
+
+        .game-over.show {
+            display: block;
+            animation: pulse glow 2s infinite;
+        }
+
+        @keyframes pulse glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(255, 0, 0, 0.5); }
+            50% { box-shadow: 0 0 30px rgba(255, 0, 0, 0.8); }
+        }
+
+        .game-over h2 {
+            margin-bottom: 20px;
+            font-size: 28px;
+            text-shadow: 0 0 10px #ff0000;
+        }
+
+        .game-over p {
+            margin: 15px 0;
+            font-size: 18px;
+        }
+
+        .game-over .stat {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            font-size: 16px;
+        }
+
+        .game-over .stat-label {
+            color: #ff8888;
+        }
+
+        .game-over .stat-value {
+            color: #ffff00;
+            font-weight: bold;
+        }
+
+        .restart-btn {
+            background: linear-gradient(to bottom, #00ff00, #00cc00);
+            color: #000000;
+            border: none;
+            padding: 12px 30px;
+            font-size: 18px;
+            cursor: pointer;
+            margin-top: 20px;
+            border-radius: 5px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+            transition: all 0.3s ease;
+        }
+
+        .restart-btn:hover {
+            background: linear-gradient(to bottom, #33ff33, #00dd00);
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.7);
+        }
+
+        .restart-btn:active {
+            transform: scale(0.98);
+        }
+
+        .controls-hint {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 8px 15px;
+            border: 1px solid #00ff00;
+            border-radius: 5px;
+            font-size: 14px;
+            color: #00ff00;
+            pointer-events: none;
+        }
+
+        .start-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            color: #00ff00;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            z-index: 30;
+            padding: 20px;
+        }
+
+        .start-screen h1 {
+            font-size: 36px;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #00ff00;
+            letter-spacing: 2px;
+        }
+
+        .start-screen p {
+            margin: 15px 0;
+            line-height: 1.6;
+            max-width: 500px;
+        }
+
+        .start-screen .highlight {
+            color: #ffff00;
+            font-weight: bold;
+        }
+
+        .start-button {
+            background: linear-gradient(to bottom, #00ff00, #00cc00);
+            color: #000000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 20px;
+            cursor: pointer;
+            margin-top: 30px;
+            border-radius: 5px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.5);
+            transition: all 0.3s ease;
+            width: 200px;
+        }
+
+        .start-button:hover {
+            background: linear-gradient(to bottom, #33ff33, #00dd00);
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.7);
+        }
+
+        .start-button:active {
+            transform: scale(0.98);
+        }
+
+        .credits {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            font-size: 12px;
+            color: #008800;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="start-screen">
+            <h1>VICE CITY</li>
+            <p>Welcome to Vice City - A retro-inspired open-world experience</p>
+            <p>Navigate the streets, <span class="highlight">collect cash</span>, <span class="highlight">avoid the police</span>, and <span class="highlight">survive gang encounters</span></p>
+            <p><strong>Controls:</strong> Arrow Keys or WASD to move</p>
+            <button class="start-button" id="start-button">START GAME</button>
+        </div>
+
+        <div id="game-map">
+            <div class="player" id="player"></div>
+            <div class="ui">
+                <div><label>Score:</label> <span id="score">0</span></div>
+                <div><label>Cash:</label> <span id="cash">$0</span></div>
+                <div><label>Health:</label> <span id="health">100%</span></div>
+                <div><label>Wanted Level:</label> <span id="wanted">0</span></div>
+            </div>
+            <div class="game-over" id="game-over">
+                <h2>GAME OVER</h2>
+                <div class="stats">
+                    <div class="stat"><span class="stat-label">Final Score:</span> <span class="stat-value" id="final-score">0</span></div>
+                    <div class="stat"><span class="stat-label">Total Cash:</span> <span class="stat-value" id="final-cash">$0</span></div>
+                    <div class="stat"><span class="stat-label">Survived:</span> <span class="stat-value" id="survived-time">0s</span></div>
+                </div>
+                <button class="restart-btn" id="restart-btn">PLAY AGAIN</button>
+            </div>
+        </div>
+
+        <div class="controls-hint" id="controls-hint">
+            ← ↑ → ↓ or WASD to Move
+        </div>
+
+        <div class="credits">
+            Vice City Basic Version
+        </div>
+    </div>
+
+    <script>
+        // Game Configuration
+        const CONFIG = {
+            PLAYER_SPEED: 5,
+            ENEMY_SPEED: 2,
+            SPAWN_RATE: 2000, // ms
+            MAX_ENEMIES: 8,
+            COLLECTIBLE_SPAWN_RATE: 3000,
+            MAX_COLLECTIBLES: 12,
+            GAME_WIDTH: 800,
+            GAME_HEIGHT: 600,
+            PLAYABLE_AREA: {
+                x1: 50,
+                y1: 50,
+                x2: 750,
+                y2: 550
+            }
+        };
+
+        // Game State
+        let gameState = {
+            score: 0,
+            cash: 0,
+            health: 100,
+            wantedLevel: 0,
+            isPlaying: false,
+            startTime: 0,
+            player: {
+                x: CONFIG.GAME_WIDTH / 2,
+                y: CONFIG.GAME_HEIGHT / 2,
+                width: 20,
+                height: 20
+            },
+            enemies: [],
+            collectibles: [],
+            keys: {},
+            lastSpawnTime: 0,
+            lastCollectibleSpawn: 0
+        };
+
+        // DOM Elements
+        const gameContainer = document.getElementById('game-container');
+        const gameMap = document.getElementById('game-map');
+        const playerEl = document.getElementById('player');
+        const scoreEl = document.getElementById('score');
+        const cashEl = document.getElementById('cash');
+        const healthEl = document.getElementById('health');
+        const wantedEl = document.getElementById('wanted');
+        const startScreen = document.getElementById('start-screen');
+        const startButton = document.getElementById('start-button');
+        const gameOverEl = document.getElementById('game-over');
+        const finalScoreEl = document.getElementById('final-score');
+        const finalCashEl = document.getElementById('final-cash');
+        const finalTimeEl = document.getElementById('survived-time');
+        const restartButton = document.getElementById('restart-btn');
+        const controlsHint = document.getElementById('controls-hint');
+
+        // Initialize game
+        function init() {
+            // Reset game state
+            gameState = {
+                score: 0,
+                cash: 0,
+                health: 100,
+                wantedLevel: 0,
+                isPlaying: false,
+                startTime: 0,
+                player: {
+                    x: CONFIG.GAME_WIDTH / 2,
+                    y: CONFIG.GAME_HEIGHT / 2,
+                    width: 20,
+                    height: 20
+                },
+                enemies: [],
+                collectibles: [],
+                keys: {},
+                lastSpawnTime: 0,
+                lastCollectibleSpawn: 0
+            };
+
+            // Clear existing entities
+            gameMap.innerHTML = '';
+            gameMap.appendChild(playerEl);
+
+            // Reset UI
+            updateUI();
+            hideGameOver();
+            showStartScreen();
+
+            // Reset player position
+            updatePlayerPosition();
+        }
+
+        // Start game
+        function startGame() {
+            gameState.isPlaying = true;
+            gameState.startTime = Date.now();
+            hideStartScreen();
+            showControlsHint();
+            resetEntities();
+            gameLoop();
+        }
+
+        // End game
+        function endGame() {
+            gameState.isPlaying = false;
+            hideControlsHint();
+            showGameOver();
+            updateFinalStats();
+        }
+
+        // Update player position on screen
+        function updatePlayerPosition() {
+            playerEl.style.left = `${gameState.player.x}px`;
+            playerEl.style.top = `${gameState.player.y}px`;
+        }
+
+        // Update UI elements
+        function updateUI() {
+            scoreEl.textContent = gameState.score;
+            cashEl.textContent = `$${gameState.cash}`;
+            healthEl.textContent = `${gameState.health}%`;
+            wantedEl.textContent = `${gameState.wantedLevel}`;
+
+            // Change UI color based on wanted level
+            if (gameState.wantedLevel >= 3) {
+                document.querySelector('.ui').style.borderColor = '#ff0000';
+                document.querySelector('.ui').style.color = '#ff0000';
+            } else if (gameState.wantedLevel > 0) {
+                document.querySelector('.ui').style.borderColor = '#ffff00';
+                document.querySelector('.ui').style.color = '#ffff00';
+            } else {
+                document.querySelector('.ui').style.borderColor = '#00ff00';
+                document.querySelector('.ui').style.color = '#00ff00';
+            }
+        }
+
+        // Show/Hide screens
+        function showStartScreen() {
+            startScreen.style.display = 'flex';
+        }
+
+        function hideStartScreen() {
+            startScreen.style.display = 'none';
+        }
+
+        function showGameOver() {
+            gameOverEl.classList.add('show');
+        }
+
+        function hideGameOver() {
+            gameOverEl.classList.remove('show');
+        }
+
+        function showControlsHint() {
+            controlsHint.style.display = 'block';
+        }
+
+        function hideControlsHint() {
+            controlsHint.style.display = 'none';
+        }
+
+        // Update final stats on game over screen
+        function updateFinalStats() {
+            const survivedSeconds = Math.floor((Date.now() - gameState.startTime) / 1000);
+            finalScoreEl.textContent = gameState.score;
+            finalCashEl.textContent = `$${gameState.cash}`;
+            finalTimeEl.textContent = `${survivedSeconds}s`;
+        }
+
+        // Reset entities for new game
+        function resetEntities() {
+            // Clear existing enemies and collectibles
+            gameState.enemies.forEach(enemy => {
+                if (enemy.element && enemy.element.parentNode) {
+                    enemy.element.remove();
+                }
+            });
+            gameState.collectibles.forEach(collectible => {
+                if (collectible.element && collectible.element.parentNode) {
+                    collectible.element.remove();
+                }
+            });
+
+            gameState.enemies = [];
+            gameState.collectibles = [];
+        }
+
+        // Spawn enemy
+        function spawnEnemy() {
+            if (gameState.enemies.length >= CONFIG.MAX_ENEMIES) return;
+
+            const enemyTypes = ['cop', 'gangster', 'civilian'];
+            const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+
+            const enemy = document.createElement('div');
+            enemy.className = `enemy ${type}`;
+
+            // Random position within playable area
+            const x = Math.random() * (CONFIG.PLAYABLE_AREA.x2 - CONFIG.PLAYABLE_AREA.x1 - 20) + CONFIG.PLAYABLE_AREA.x1;
+            const y = Math.random() * (CONFIG.PLAYABLE_AREA.y2 - CONFIG.PLAYABLE_AREA.y1 - 20) + CONFIG.PLAYABLE_AREA.y1;
+
+            enemy.style.left = `${x}px`;
+            enemy.style.top = `${y}px`;
+
+            // Random movement direction
+            const angle = Math.random() * Math.PI * 2;
+            const speed = CONFIG.ENEMY_SPEED + (Math.random() * 2);
+
+            gameMap.appendChild(enemy);
+
+            gameState.enemies.push({
+                element: enemy,
+                x: x,
+                y: y,
+                vx: Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                type: type,
+                size: 18
+            });
+        }
+
+        // Spawn collectible
+        function spawnCollectible() {
+            if (gameState.collectibles.length >= CONFIG.MAX_COLLECTIBLES) return;
+
+            const types = [
+                { type: 'cash', value: 10, color: '#00ff00' },
+                { type: 'weapon', value: 25, color: '#ff00ff' },
+                { type: 'health', value: 15, color: '#ff4500' }
+            ];
+
+            const item = types[Math.floor(Math.random() * types.length)];
+
+            const collectible = document.createElement('div');
+            collectible.className = `collectible ${item.type}`;
+            collectible.dataset.value = item.value;
+
+            // Random position within playable area
+            const x = Math.random() * (CONFIG.PLAYABLE_AREA.x2 - CONFIG.PLAYABLE_AREA.x1 - 12) + CONFIG.PLAYABLE_AREA.x1;
+            const y = Math.random() * (CONFIG.PLAYABLE_AREA.y2 - CONFIG.PLAYABLE_AREA.y1 - 12) + CONFIG.PLAYABLE_AREA.y1;
+
+            collectible.style.left = `${x}px`;
+            collectible.style.top = `${y}px`;
+
+            gameMap.appendChild(collectible);
+
+            gameState.collectibles.push({
+                element: collectible,
+                x: x,
+                y: y,
+                type: item.type,
+                value: item.value,
+                size: 12,
+                collected: false
+            });
+        }
+
+        // Check collision between two circular objects
+        function checkCircleCollision(obj1, obj2) {
+            const dx = obj1.x - obj2.x;
+            const dy = obj1.y - obj2.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            return distance < (obj1.size / 2 + obj2.size / 2);
+        }
+
+        // Handle player input
+        function handleInput() {
+            const speed = config.PLAYER_SPEED;
+
+            if (gameState.keys['ArrowUp'] || gameState.keys['w'] || gameState.keys['W']) {
+                gameState.player.y -= speed;
+            if (gameState.player.y -= speed;
+            }
+            if (gameState.keys['ArrowDown'] || gameState.keys['s'] || gameState.keys['S']) {
+                gameState.player.y += speed;
+            }
+            if (gameState.keys['ArrowLeft'] || gameState.keys')
+        player.x -= speed;
+            }
+            if (gameState.keys['ArrowRight'] || gameState.keys['d'] || gameState.keys['D']) {
+                player.x += speed;
+            }
+
+            // Keep player within bounds
+            player.x = Math.max(config.PLAYABLE_AREA.x1,
+                              Math.min(player.x, config.PLAYABLE_AREA.x2 - player.width));
+            player.y = Math.max(config.PLAYABLE_AREA.y1,
+                              Math.min(player.y, config.PLAYABLE_AREA.y2 - player.height));
+        }
+
+        // Update game logic
+        function update() {
+            if (!gameState.isPlaying) return;
+
+            const now = Date.now();
+
+            // Handle player movement
+            handleInput();
+            updatePlayerPosition();
+
+            // Spawn enemies
+            if (now - gameState.lastSpawnTime > config.SPAWN_RATE) {
+                spawnEnemy();
+                gameState.lastSpawnTime = now;
+            }
+
+            // Spawn collectibles
+            if (now - gameState.lastCollectibleSpawn > config.COLLECTIBLE_SPAWN_RATE) {
+                spawnCollectible();
+                gameState.lastCollectibleSpawn = now;
+            }
+
+            // Update enemies
+            gameState.enemies.forEach(enemy => {
+                // Move enemy
+Enemy.x += enemy.vx;
+                enemy.y += enemy.vy;
+
+                // Bounce off boundaries
+                if (enemy.x < config.PLAYABLE_AREA.x1 || enemy.x > config.PLAYABLE_AREA.x2 - enemy.size) {
+                    enemy.vx = -enemy.vx;
+                }
+                if (enemy.y < config.PLAYABLE_AREA.y1 || enemy.y > config.PLAYABLE_AREA.y2 - enemy.size) {
+                    enemy.vy = -enemy.vy;
+                }
+
+                // Update position
+                enemy.element.style.left = `${enemy.x}px`;
+                enemy.element.style.top = `${enemy.y}px`;
+
+                // Check collision with player
+                if (checkCircleCollision(gameState.player, enemy)) {
+                    handleEnemyCollision(enemy);
+                }
+            });
+
+            // Check collectible collection
+            gameState.collectibles.forEach(collectible => {
+                if (!collectible.collected && checkCircleCollision(gameState.player, collectible)) {
+                    collectItem(collectible);
+                }
+            });
+
+            // Update wanted level based on score
+            updateWantedLevel();
+
+            // Check game over conditions
+            if (gameState.health <= 0) {
+                endGame();
+            }
+        }
+
+        // Handle enemy collision
+        function handleEnemyCollision(enemy) {
+            let damage = 10;
+            let cashLoss = 0;
+
+            switch (enemy.type) {
+                case 'cop':
+                    damage = 15;
+                    cashLoss = Math.floor(gameState.cash * 0.1); // Lose 10% cash
+                    increaseWantedLevel(2);
+                    break;
+                case 'gangster':
+                    damage = 20;
+                    cashLoss = Math.floor(gameState.cash * 0.15); // Lose 15% cash
+                    increaseWantedLevel(1);
+                    break;
+                default: // civilian
+                    damage = 5;
+                    // No wanted level increase for civilians
+                    break;
+            }
+
+            // Apply damage
+            gameState.health = Math.max(0, gameState.health - damage);
+
+            // Lose cash
+            gameState.cash = Math.max(0, gameState.cash - cashLoss);
+
+            // Add score for surviving encounter
+            gameState.score += 10;
+
+            // Visual feedback
+            playerEl.style.backgroundColor = '#ff0000';
+            setTimeout(() => {
+                playerEl.style.backgroundColor = '#00ff00';
+            }, 200);
+
+            updateUI();
+        }
+
+        // Collect item
+        function collectItem(item) {
+            item.collected = true;
+            item.element.remove();
+
+            // Reward based on item type
+            switch (item.type) {
+                case 'cash':
+                    gameState.cash += item.value;
+                    gameState.score += Math.floor(item.value / 2);
+                    break;
+                case 'weapon':
+                    gameState.score += 50;
+                    // Temporary invincibility would go here
+                    break;
+                case 'health':
+                    gameState.health = Math.min(100, gameState.health + item.value);
+                    break;
+            }
+
+            // Remove from array
+            gameState.collectibles = gameState.collectibles.filter(i => i !== item);
+
+            updateUI();
+        }
+
+        // Increase wanted level
+        function increaseWantedLevel(amount) {
+            gameState.wantedLevel = Math.min(5, gameState.wantedLevel + amount);
+
+            // Increase enemy spawn rate as wanted level increases
+            if (gameState.wantedLevel >= 3) {
+                // Spawn more aggressive enemies
+            }
+        }
+
+        // Update wanted level based on score/time
+        function updateWantedLevel() {
+            // Increase wanted level every 1000 points
+            const newWantedLevel = Math.floor(gameState.score / 1000);
+            if (newWantedLevel > gameState.wantedLevel) {
+                gameState.wantedLevel = Math.min(5, newWantedLevel);
+            }
+        }
+
+        // Main game loop
+        function gameLoop(timestamp) {
+            if (!gameState.isPlaying) return;
+
+            update();
+
+            // Request next frame
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Event listeners
+        document.addEventListener('keydown', (e) => {
+            gameState.keys[e.key] = true;
+            gameState.keys[e.key.toLowerCase()] = true;
+            gameState.keys[e.key.toUpperCase()] = true;
+        });
+
+        document.addEventListener('keyup', (e) => {
+            gameState.keys[e.key] = false;
+            gameState.keys[e.key.toLowerCase()] = false;
+            gameState.keys[e.key.toUpperCase()] = false;
+        });
+
+        // Start button
+        startButton.addEventListener('click', startGame);
+
+        // Restart button
+        restartButton.addEventListener('click', () => {
+            init();
+        });
+
+        // Initialize game
+        init();
+    </script>
+</body>
+</html>

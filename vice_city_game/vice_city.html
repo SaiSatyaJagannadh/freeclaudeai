@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vice City - Basic Version</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #0f0f0f;
+            color: #00ff00;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background-color: #1a1a1a;
+            border: 2px solid #00ff00;
+            overflow: hidden;
+        }
+
+        #game-map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="%231a1a1a"/><rect x="50" y="50" width="700" height="500" fill="%230d0d0d" stroke="%23003300" stroke-width="2"/><rect x="100" y="100" width="200" height="100" fill="%23222222"/><rect x="350" y="100" width="150" height="100" fill="%23222222"/><rect x="100" y="250" width="150" height="100" fill="%23222222"/><rect x="350" y="250" width="200" height="100" fill="%23222222"/><rect x="100" y="400" width="100" height="100" fill="%23222222"/><rect x="250" y="400" width="100" height="100" fill="%23222222"/><rect x="400" y="400" width="100" height="100" fill="%23222222"/><rect x="550" y="400" width="100" height="100" fill="%23222222"/></svg>');
+        }
+
+        .player {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background-color: #00ff00;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .enemy {
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background-color: #ff0000;
+            border-radius: 50%;
+        }
+
+        .collectible {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background-color: #ffff00;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border: 1px solid #00ff00;
+            font-size: 14px;
+        }
+
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            color: #ff0000;
+            padding: 20px;
+            border: 2px solid #ff0000;
+            text-align: center;
+            display: none;
+        }
+
+        .game-over.show {
+            display: block;
+        }
+
+        .restart-btn {
+            background-color: #00ff00;
+            color: #000000;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .restart-btn:hover {
+            background-color: #00cc00;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="game-map">
+            <div class="player" id="player"></div>
+            <div class="ui">
+                <div>Score: <span id="score">0</span></div>
+                <div>Lives: <span id="lives">3</span></div>
+                <div>Cash: <span id="cash">$0</span></div>
+            </div>
+            <div class="game-over" id="game-over">
+                <h2>GAME OVER</h2>
+                <p>Final Score: <span id="final-score">0</span></p>
+                <button class="restart-btn" id="restart-btn">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const gameContainer = document.getElementById('game-container');
+        const gameMap = document.getElementById('game-map');
+        const player = document.getElementById('player');
+        const scoreElement = document.getElementById('score');
+        const livesElement = document.getElementById('lives');
+        const cashElement = document.getElementById('cash');
+        const gameOver = document.getElementById('game-over');
+        const finalScoreElement = document.getElementById('final-score');
+        const restartBtn = document.getElementById('restart-btn');
+
+        // Game state
+        let score = 0;
+        let lives = 3;
+        let cash = 0;
+        let gameActive = true;
+        let playerX = 400;
+        let playerY = 300;
+        const playerSpeed = 5;
+        const enemies = [];
+        const collectibles = [];
+        const enemyCount = 5;
+        const collectibleCount = 10;
+
+        // Initialize game
+        function initGame() {
+            // Create enemies
+            for (let i = 0; i < enemyCount; i++) {
+                const enemy = document.createElement('div');
+                enemy.className = 'enemy';
+                enemy.style.left = `${Math.random() * 700 + 50}px`;
+                enemy.style.top = `${Math.random() * 500 + 50}px`;
+                enemy.dx = (Math.random() - 0.5) * 2;
+                enemy.dy = (Math.random() - 0.5) * 2;
+                gameMap.appendChild(enemy);
+                enemies.push({
+                    element: enemy,
+                    x: parseFloat(enemy.style.left),
+                    y: parseFloat(enemy.style.top),
+                    dx: enemy.dx,
+                    dy: enemy.dy
+                });
+            }
+
+            // Create collectibles
+            for (let i = 0; i < collectibleCount; i++) {
+                const collectible = document.createElement('div');
+                collectible.className = 'collectible';
+                collectible.style.left = `${Math.random() * 700 + 50}px`;
+                collectible.style.top = `${Math.random() * 500 + 50}px`;
+                gameMap.appendChild(collectible);
+                collectibles.push({
+                    element: collectible,
+                    x: parseFloat(collectible.style.left),
+                    y: parseFloat(collectible.style.top),
+                    collected: false
+                });
+            }
+
+            // Update player position
+            updatePlayerPosition();
+
+            // Start game loop
+            gameLoop();
+        }
+
+        // Update player position on screen
+        function updatePlayerPosition() {
+            player.style.left = `${playerX}px`;
+            player.style.top = `${playerY}px`;
+        }
+
+        // Update enemies
+        function updateEnemies() {
+            enemies.forEach(enemy => {
+                // Move enemy
+                enemy.x += enemy.dx;
+                enemy.y += enemy.dy;
+
+                // Bounce off walls
+                if (enemy.x <= 50 || enemy.x >= 750 - 18) {
+                    enemy.dx = -enemy.dx;
+                }
+                if (enemy.y <= 50 || enemy.y >= 550 - 18) {
+                    enemy.dy = -enemy.dy;
+                }
+
+                // Update position
+                enemy.element.style.left = `${enemy.x}px`;
+                element.style.top = \`${enemy.y}px\`;`;
+
+                // Check collision with player
+                if (checkCollision(
+                    { x: playerX, y: playerY, size: 20 },
+                    { x: enemy.x, y: enemy.y, size: 18 }
+                ) && gameActive) {
+                    loseLife();
+                }
+            });
+        }
+
+        // Update collectibles
+        function updateCollectibles() {
+            collectibles.forEach(collectible => {
+                if (!collectible.collected) {
+                    // Check collision with player
+                    if (checkCollision(
+                        { x: playerX, y: playerY, size: 20 },
+                        { x: collectible.x, y: collectible.y, size: 12 }
+                    )) {
+                        collectible.collected = true;
+                        collectible.element.style.display = 'none';
+                        collectible();
+                        score += 10;
+                        cash += Math.floor(Math.random() * 50) + 10;
+                        updateUI();
+
+                        // Check if all collectibles collected
+                        if (collectibles.every(c => c.collected)) {
+                            // Respawn collectibles
+                            collectibles.forEach(c => {
+                                c.collected = false;
+                                c.element.style.display = 'block';
+                                c.x = Math.random() * 700 + 50;
+                                c.y = Math.random() * 500 + 50;
+                                c.element.style.left = \`${c.x}px\`;
+                                c.element.style.top = \`${c.y}px\`;
+                            });
+                        }
+                    }
+                }
+            });
+        }
+
+        // Check collision between two objects
+        function checkCollision(obj1, obj2) {
+            const dx = obj1.x - obj2.x;
+            const dy = obj1.y - obj2.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            return distance < (obj1.size + obj2.size) / 2;
+        }
+
+        // Lose a life
+        function loseLife() {
+            lives--;
+            updateUI();
+
+            if (lives <= 0) {
+                gameOver();
+            } else {
+                // Reset player position
+                playerX = 400;
+                playerY = 300;
+                updatePlayerPosition();
+            }
+        }
+
+        // Game over
+        function gameOver() {
+            gameActive = false;
+            finalScoreElement.textContent = score;
+            gameOver.classList.add('show');
+        }
+
+        // Update UI
+        function updateUI() {
+            scoreElement.textContent = score;
+            livesElement.textContent = lives;
+            cashElement.textContent = `$${cash}`;
+        }
+
+        // Game loop
+        function gameLoop() {
+            if (!gameActive) return;
+
+            updateEnemies();
+            updateCollectibles();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Handle keyboard input
+        document.addEventListener('keydown', (e) => {
+            if (!gameActive) return;
+
+            switch(e.key) {
+                case 'ArrowUp':
+                case 'w':
+                    if (playerY > 50) playerY -= playerSpeed;
+                    break;
+                case 'ArrowDown':
+                case 's':
+                    if (playerY < 550) playerY += playerSpeed;
+                    break;
+                case 'ArrowLeft':
+                case 'a':
+                    if (playerX > 50) playerX -= playerSpeed;
+                    break;
+                case 'ArrowRight':
+                case 'd':
+                    if (playerX < 750) playerX += playerSpeed;
+                    break;
+            }
+
+            updatePlayerPosition();
+        });
+
+        // Restart game
+        restartBtn.addEventListener('click', () => {
+            // Reset game state
+            score = 0;
+            lives = 3;
+            cash = 0;
+            gameActive = true;
+            playerX = 400;
+            playerY = 300;
+
+            // Hide game over
+            gameOver.classList.remove('show');
+
+            // Reset enemies
+            enemies.forEach((enemy, index) => {
+                enemy.element.style.left = `${Math.random() * 700 + 50}px`;
+                enemy.element.style.top = `${Math.random() * 500 + 50}px`;
+                enemy.x = parseFloat(enemy.element.style.left);
+                enemy.y = parseFloat(enemy.element.style.top);
+                enemy.dx = (Math.random() - 0.5) * 2;
+                enemy.dy = (Math.random() - 0.5) * 2;
+            });
+
+            // Reset collectibles
+            collectibles.forEach(collectible => {
+                collectible.collected = false;
+                collectible.element.style.display = 'block';
+                collectible.x = Math.random() * 700 + 50;
+                collectible.y = Math.random() * 500 + 50;
+                collectible.element.style.left = \`${collectible.x}px\`;
+                collectible.element.style.top = \`${collectible.y}px\`;
+            });
+
+            updateUI();
+            updatePlayerPosition();
+        });
+
+        // Initialize game when page loads
+        window.addEventListener('load', initGame);
+    </script>
+</body>
+</html>
