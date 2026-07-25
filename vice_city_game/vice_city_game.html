@@ -304,8 +304,8 @@
 </head>
 <body>
     <div id="game-container">
-        <div id="start-screen">
-            <h1>VICE CITY</li>
+        <div class="start-screen" id="start-screen">
+            <h1>VICE CITY</h1>
             <p>Welcome to Vice City - A retro-inspired open-world experience</p>
             <p>Navigate the streets, <span class="highlight">collect cash</span>, <span class="highlight">avoid the police</span>, and <span class="highlight">survive gang encounters</span></p>
             <p><strong>Controls:</strong> Arrow Keys or WASD to move</p>
@@ -359,6 +359,8 @@
             }
         };
 
+        const config = CONFIG;
+
         // Game State
         let gameState = {
             score: 0,
@@ -371,7 +373,8 @@
                 x: CONFIG.GAME_WIDTH / 2,
                 y: CONFIG.GAME_HEIGHT / 2,
                 width: 20,
-                height: 20
+                height: 20,
+                size: 20
             },
             enemies: [],
             collectibles: [],
@@ -411,7 +414,8 @@
                     x: CONFIG.GAME_WIDTH / 2,
                     y: CONFIG.GAME_HEIGHT / 2,
                     width: 20,
-                    height: 20
+                    height: 20,
+                    size: 20
                 },
                 enemies: [],
                 collectibles: [],
@@ -420,9 +424,8 @@
                 lastCollectibleSpawn: 0
             };
 
-            // Clear existing entities
-            gameMap.innerHTML = '';
-            gameMap.appendChild(playerEl);
+            // Clear existing entities (not the HUD / overlays, which also live in #game-map)
+            gameMap.querySelectorAll('.enemy, .collectible').forEach(el => el.remove());
 
             // Reset UI
             updateUI();
@@ -609,16 +612,16 @@
         // Handle player input
         function handleInput() {
             const speed = config.PLAYER_SPEED;
+            const player = gameState.player;
 
             if (gameState.keys['ArrowUp'] || gameState.keys['w'] || gameState.keys['W']) {
-                gameState.player.y -= speed;
-            if (gameState.player.y -= speed;
+                player.y -= speed;
             }
             if (gameState.keys['ArrowDown'] || gameState.keys['s'] || gameState.keys['S']) {
-                gameState.player.y += speed;
+                player.y += speed;
             }
-            if (gameState.keys['ArrowLeft'] || gameState.keys')
-        player.x -= speed;
+            if (gameState.keys['ArrowLeft'] || gameState.keys['a'] || gameState.keys['A']) {
+                player.x -= speed;
             }
             if (gameState.keys['ArrowRight'] || gameState.keys['d'] || gameState.keys['D']) {
                 player.x += speed;
@@ -656,7 +659,7 @@
             // Update enemies
             gameState.enemies.forEach(enemy => {
                 // Move enemy
-Enemy.x += enemy.vx;
+                enemy.x += enemy.vx;
                 enemy.y += enemy.vy;
 
                 // Bounce off boundaries
@@ -695,6 +698,11 @@ Enemy.x += enemy.vx;
 
         // Handle enemy collision
         function handleEnemyCollision(enemy) {
+            // Collision holds for many frames; only damage once per second per enemy
+            const now = Date.now();
+            if (now - (enemy.lastHit || 0) < 1000) return;
+            enemy.lastHit = now;
+
             let damage = 10;
             let cashLoss = 0;
 
