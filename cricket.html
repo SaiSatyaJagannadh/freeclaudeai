@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nokia Cricket</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 14px;
+    background: #11181c;
+    font-family: 'Courier New', Courier, monospace;
+  }
+  .phone {
+    background: linear-gradient(160deg, #2a3c48, #1b2730);
+    padding: 18px 18px 22px;
+    border-radius: 18px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+  }
+  .screen {
+    background: #9bbc0f;
+    padding: 12px 12px 8px;
+    border-radius: 6px;
+    border: 3px solid #0a141a;
+    box-shadow: inset 0 0 0 3px #8bac0f, inset 0 0 18px rgba(15,56,15,.25);
+  }
+  .hud {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-weight: bold; letter-spacing: 2px; font-size: 12px;
+    color: #0f380f;
+    text-shadow: 0 1px 0 rgba(159,191,15,.4);
+    margin-bottom: 6px;
+  }
+  canvas {
+    display: block; image-rendering: pixelated;
+    background: #9bbc0f;
+    border: 2px solid #0f380f;
+  }
+  .brand {
+    text-align: center; margin-top: 6px;
+    color: #0f380f; opacity: .45;
+    font-size: 10px; letter-spacing: 4px; font-weight: bold;
+  }
+  .hint { color: #6b7d88; font-size: 12px; letter-spacing: 1px; text-align:center; }
+  .hint kbd {
+    background: #2a3c48; color: #b8c7d0; border: 1px solid #3a4e5a;
+    border-radius: 3px; padding: 1px 6px; font-family: inherit; font-size: 11px;
+  }
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="screen">
+      <div class="hud"><span id="score">0/0</span><span id="hi">HI 0</span></div>
+      <canvas id="c" width="360" height="360"></canvas>
+      <div class="brand">NOKIA &middot; CRICKET</div>
+    </div>
+  </div>
+  <div class="hint">
+    <kbd>SPACE</kbd> to play your shot &middot; time it as the ball reaches the bat<br>
+    perfect timing = SIX &middot; mistime it and you're caught &middot; 10 wickets and you're out
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const hiEl = document.getElementById('hi');
+
+  const W = 360, H = 360;
+  const PITCH_X0 = 118, PITCH_X1 = 242, PITCH_CX = (PITCH_X0 + PITCH_X1) / 2;
+  const BOWL_Y = 46, HIT_Y = 286, STUMP_Y = 296, STUMP_H = 26;
+  const BASE_SPEED = 190, MAX_SPEED = 340;          // px/sec down the pitch
+  const RUNUP_MS = 620, RESULT_MS = 1000, SWING_MS = 240;
+  const WICKETS = 10;
+  const HS_KEY = 'nokia_cricket_hi';
+
+  let ball, bowler, score, wickets, balls, hi, state, phaseLeft;
+  let swing, swung, result, last, now, acc;
+
+  function loadHi(){ try { hi = parseInt(localStorage.getItem(HS_KEY)||'0',10)||0; } catch(e){ hi = 0; } }
+  function saveHi(){ if(score>hi){ hi = score; try { localStorage.setItem(HS_KEY,String(hi)); } catch(e){} } }
+
+  // Timing bands, in pixels of error from the ideal contact point. Pure so it can be
+  // self-tested without a canvas — see selfTest() at the bottom.
+  function outcomeFor(err, onStumps, didSwing){
+    if (!didSwing)  return onStumps ? {out:'BOWLED',  runs:0} : {runs:0, text:'DOT BALL'};
+    if (err <= 5)   return {runs:6, text:'SIX!'};
+    if (err <= 11)  return {runs:4, text:'FOUR!'};
+    if (err <= 19)  return {runs:2, text:'TWO'};
+    if (err <= 27)  return {runs:1, text:'SINGLE'};
+    if (err <= 37)  return {out:'CAUGHT', runs:0};
+    return onStumps ? {out:'BOWLED', runs:0} : {runs:0, text:'MISSED'};
+  }
+
+  function reset(){
+    score = 0; wickets = 0; balls = 0;
+    state = 'idle'; phaseLeft = 0; result = null;
+    swing = 0; swung = false; last = 0; acc = 0;
+    ball = null; bowler = {y: -14};
+    updateHud();
+  }
+
+  function updateHud(){
+    scoreEl.textContent = score + '/' + wickets;
+    hiEl.textContent = 'HI ' + hi;
+  }
+
+  function nextBall(){
+    // Line varies ball to ball; a wide one can't bowl you but is harder to time.
+    const line = PITCH_CX + (Math.random()*54 - 27);
+    ball = {
+      x: PITCH_CX + (Math.random()*18 - 9), y: BOWL_Y,
+      line, vx: 0, vy: 0, flying: false,
+      speed: Math.min(MAX_SPEED, BASE_SPEED + score*1.6)   // ponytail: linear ramp, tune if it plateaus
+    };
+    bowler = {y: -14};
+    swing = 0; swung = false; result = null;
+    state = 'runup'; phaseLeft = RUNUP_MS;
+  }
+
+  function resolve(didSwing){
+    const err = Math.abs(ball.y - HIT_Y);
+    const onStumps = Math.abs(ball.x - PITCH_CX) < 11;
+    const o = outcomeFor(err, onStumps, didSwing);
+    balls++;
+    if (o.out){
+      wickets++;
+      result = {text: o.out, runs: 0};
+      ball.flying = false;
+      if (wickets >= WICKETS){ saveHi(); updateHud(); state = 'over'; return; }
+    } else {
+      score += o.runs;
+      result = {text: o.text, runs: o.runs};
+      if (o.runs > 0){                                  // send it to the boundary
+        const dir = Math.random() < 0.5 ? -1 : 1;
+        const power = o.runs >= 6 ? 1 : o.runs >= 4 ? 0.8 : 0.45;
+        ball.vx = dir * (120 + 260*power) * (0.6 + Math.random()*0.5);
+        ball.vy = -(150 + 300*power);
+        ball.flying = true;
+      } else {
+        ball.flying = false;
+      }
+    }
+    updateHud();
+    state = 'result'; phaseLeft = RESULT_MS;
+  }
+
+  function playShot(){
+    if (state !== 'bowling' || swung) return;
+    swung = true; swing = SWING_MS;
+    resolve(true);
+  }
+
+  // ---- rendering ----
+  const dark = '#0f380f', mid = '#306230', lcd = '#9bbc0f';
+  function disc(x,y,r,color){ ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); }
+  function line(x0,y0,x1,y1,w,color){
+    ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+  }
+
+  function drawField(){
+    ctx.fillStyle = lcd; ctx.fillRect(0,0,W,H);
+    // outfield ring
+    ctx.strokeStyle = 'rgba(48,98,48,.35)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(W/2, H/2, W*0.47, H*0.46, 0, 0, Math.PI*2); ctx.stroke();
+    // pitch strip
+    ctx.fillStyle = 'rgba(48,98,48,.18)';
+    ctx.fillRect(PITCH_X0, 30, PITCH_X1-PITCH_X0, 290);
+    ctx.strokeStyle = 'rgba(48,98,48,.45)';
+    ctx.strokeRect(PITCH_X0+.5, 30.5, PITCH_X1-PITCH_X0-1, 289);
+    // creases
+    [64, STUMP_Y+8].forEach(y => line(PITCH_X0+6, y, PITCH_X1-6, y, 1.5, 'rgba(48,98,48,.5)'));
+  }
+
+  function drawStumps(){
+    for (let i=-1;i<=1;i++) line(PITCH_CX + i*8, STUMP_Y, PITCH_CX + i*8, STUMP_Y+STUMP_H, 2.5, dark);
+    line(PITCH_CX-9, STUMP_Y-1, PITCH_CX+9, STUMP_Y-1, 2, dark);   // bails
+  }
+
+  function drawBowler(){
+    const y = bowler.y;
+    if (y < -8) return;
+    disc(PITCH_CX, y, 6, dark);                                     // head
+    line(PITCH_CX, y+6, PITCH_CX, y+22, 3.5, dark);                 // body
+    const t = state === 'runup' ? 1 - phaseLeft/RUNUP_MS : 1;
+    const arm = -Math.PI/2 + t*Math.PI*1.6;                         // windmill delivery arm
+    line(PITCH_CX, y+10, PITCH_CX + Math.cos(arm)*13, y+10 + Math.sin(arm)*13, 3, dark);
+    const stride = Math.sin(t*Math.PI*3) * 5;
+    line(PITCH_CX, y+22, PITCH_CX-5+stride, y+33, 3, dark);
+    line(PITCH_CX, y+22, PITCH_CX+5-stride, y+33, 3, dark);
+  }
+
+  function drawBatsman(){
+    const bx = PITCH_CX - 20, by = STUMP_Y - 4;
+    disc(bx, by-30, 6.5, dark);                                     // head
+    line(bx, by-24, bx, by-8, 4, dark);                             // body
+    line(bx, by-8, bx-6, by+8, 3.5, dark);                          // legs
+    line(bx, by-8, bx+5, by+8, 3.5, dark);
+    // bat swings through the shot, then settles back to a ready stance
+    const t = swing > 0 ? 1 - swing/SWING_MS : 0;
+    const ang = -2.35 + (swing > 0 ? Math.sin(t*Math.PI) * 2.9 : 0);
+    const hx = bx + 7, hy = by - 20;
+    line(hx, hy, hx + Math.cos(ang)*8, hy + Math.sin(ang)*8, 3, dark);          // arms
+    const gx = hx + Math.cos(ang)*8, gy = hy + Math.sin(ang)*8;
+    line(gx, gy, gx + Math.cos(ang)*22, gy + Math.sin(ang)*22, 6, mid);         // bat
+  }
+
+  function drawBall(){
+    if (!ball) return;
+    // shadow grows as the ball comes down the pitch = crude depth cue
+    const t = Math.max(0, Math.min(1, (ball.y - BOWL_Y) / (HIT_Y - BOWL_Y)));
+    const r = 3 + t*2.2;
+    if (!ball.flying) disc(ball.x + 3, ball.y + 3, r*0.9, 'rgba(48,98,48,.3)');
+    disc(ball.x, ball.y, r, dark);
+  }
+
+  function banner(...lines){
+    ctx.fillStyle = 'rgba(15,56,15,.82)'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = lcd; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font = 'bold 20px "Courier New", monospace';
+    lines.forEach((ln,i)=> ctx.fillText(ln, W/2, H/2 + (i-(lines.length-1)/2)*26));
+  }
+
+  function drawResult(){
+    if (!result) return;
+    const big = result.runs >= 4 || result.text === 'BOWLED' || result.text === 'CAUGHT';
+    ctx.fillStyle = dark; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold ' + (big ? 30 : 20) + 'px "Courier New", monospace';
+    ctx.fillText(result.text, W/2, 132);
+  }
+
+  function draw(){
+    drawField();
+    drawStumps();
+    drawBowler();
+    drawBatsman();
+    drawBall();
+    // overs line
+    ctx.fillStyle = 'rgba(15,56,15,.6)'; ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.font = 'bold 11px "Courier New", monospace';
+    ctx.fillText('BALLS ' + balls, 8, 8);
+    if (state === 'result') drawResult();
+    if (state === 'idle')      banner('NOKIA CRICKET', 'SPACE TO BAT');
+    else if (state === 'over') banner('ALL OUT', score + ' RUNS', 'BEST ' + hi, 'SPACE TO PLAY');
+  }
+
+  function frame(t){
+    requestAnimationFrame(frame);
+    if (!last) last = t;
+    const dt = Math.min(t - last, 100); now = t; last = t;
+    const s = dt/1000;
+
+    if (swing > 0) swing = Math.max(0, swing - dt);
+
+    if (state === 'runup'){
+      phaseLeft -= dt;
+      bowler.y = -14 + (1 - phaseLeft/RUNUP_MS) * (BOWL_Y - 14);
+      if (phaseLeft <= 0){ state = 'bowling'; ball.y = BOWL_Y; }
+    } else if (state === 'bowling'){
+      ball.y += ball.speed * s;
+      // drift toward the intended line as it comes down
+      ball.x += (ball.line - ball.x) * Math.min(1, s*3);
+      if (ball.y > HIT_Y + 42) resolve(false);          // played on / left it
+    } else if (state === 'result'){
+      if (ball.flying){ ball.x += ball.vx*s; ball.y += ball.vy*s; ball.vy += 220*s; }
+      phaseLeft -= dt;
+      if (phaseLeft <= 0) nextBall();
+    }
+    draw();
+  }
+
+  window.addEventListener('keydown', e => {
+    if (e.code !== 'Space' && e.key !== ' ') return;
+    e.preventDefault();
+    if (state === 'idle')      nextBall();
+    else if (state === 'over') { reset(); nextBall(); }
+    else                        playShot();
+  });
+  canvas.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (state === 'idle') nextBall();
+    else if (state === 'over') { reset(); nextBall(); }
+    else playShot();
+  });
+
+  // Runnable check for the scoring bands: open cricket.html?selftest
+  function selfTest(){
+    const cases = [
+      [0,  true,  true,  6, null],
+      [5,  false, true,  6, null],
+      [8,  true,  true,  4, null],
+      [15, false, true,  2, null],
+      [25, true,  true,  1, null],
+      [30, false, true,  0, 'CAUGHT'],
+      [60, true,  true,  0, 'BOWLED'],
+      [60, false, true,  0, null],
+      [0,  true,  false, 0, 'BOWLED'],
+      [0,  false, false, 0, null],
+    ];
+    const fails = [];
+    for (const [err, onStumps, didSwing, runs, out] of cases){
+      const o = outcomeFor(err, onStumps, didSwing);
+      if (o.runs !== runs || (o.out || null) !== out)
+        fails.push(`err=${err} stumps=${onStumps} swing=${didSwing} -> ${JSON.stringify(o)}`);
+    }
+    console.log(fails.length ? 'SELFTEST FAILED:\n' + fails.join('\n') : 'SELFTEST PASSED (10 cases)');
+    return fails.length === 0;
+  }
+  if (location.search.includes('selftest')) selfTest();
+
+  loadHi(); reset(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
